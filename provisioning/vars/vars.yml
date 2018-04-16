@@ -1,0 +1,43 @@
+---
+
+symfony_root_dir: "/srv/site-name"
+symfony_web_dir: "{{ symfony_root_dir }}/public"
+symfony_var_dir: "{{ symfony_root_dir }}/var"
+symfony_console_path: "{{ symfony_root_dir }}/bin/console"
+symfony_secret: "THISISNOTVERYSECRET"
+
+symfony_env: dev
+
+# MYSQL
+mysql_databases:
+ - name: site_name
+   collation: utf8_general_ci
+   encoding: utf8
+   replicate: 1
+mysql_root_password_update: yes
+
+# COMPOSER
+composer_keep_updated: true
+composer_home_path: "/home/{{ ansible_user }}/.composer"
+composer_home_owner: "{{ ansible_user }}"
+composer_home_group: "{{ ansible_user }}"
+composer_global_packages:
+  - { name: hirak/prestissimo, release: '^0.3' }
+
+#PHP
+php_version: '7.2'
+php_memory_limit: "512M"
+php_max_execution_time: "90"
+php_upload_max_filesize: "256M"
+php_enable_php_fpm: yes
+php_fpm_listen: "/var/run/php/php7.2-fpm.sock"
+php_webserver_daemon: nginx
+php_packages:
+  - php
+  - php-cli
+  - php-curl
+  - php-fpm
+  - php-intl
+  - php-mysql
+  - php-xml
+  - php-mbstring

@@ -1,0 +1,154 @@
+---
+- hosts: all
+
+  vars_files:
+    - ./vars/vars.yml
+
+  vars_prompt:
+    - name: symfony_env
+      prompt: "Enter the environment for your Symfony app (prod|test|dev)"
+      default: dev
+      private: no
+
+  environment:
+    SYMFONY_ENV: "{{ symfony_env|lower }}"
+
+  pre_tasks:
+    - name: Convert entered Symfony enviroment to lowercase
+      set_fact:
+        symfony_env: "{{ symfony_env|lower }}"
+      tags:
+        - always
+
+    - name: Install aptitude
+      become: true
+      apt:
+        name: aptitude
+
+#    - name: Update APT package repositories
+#      become: true
+#      apt:
+#        update_cache: yes
+#
+#
+#    - name: Upgrade installed packages
+#      become: true
+#      apt:
+#        upgrade: safe
+
+  roles:
+    - nginx
+    - role: geerlingguy.php-versions
+      become: true
+    - role: geerlingguy.php
+      become: true
+    - role: geerlingguy.php-mysql
+      become: true
+    - role: geerlingguy.php-xdebug
+      become: true
+    - role: geerlingguy.composer
+      become: true
+    - role: geerlingguy.mysql
+      become: yes
+
+  tasks:
+    - ping: ~
+
+    - name: Install low-level Utils
+      become: true
+      apt:
+        name: "{{ item }}"
+      with_items:
+        - zip
+        - unzip
+
+    - name: add enabled site to /etc/hosts
+      become: true
+      lineinfile:
+        dest: /etc/hosts
+        regexp: "{{ server_name }}"
+        line: "127.0.0.1 {{ server_name }}"
+
+    # - name: Symlink the .env file
+    #   file:
+    #     src: "./.env.dev"
+    #     dest: "{{ symfony_root_dir }}/.env"
+    #     group: "www-data"
+    #     owner: "vagrant"
+    #     state: link
+    #   tags:
+    #     - deploy
+
+    # Bootstrap Symfony app
+    - name: Install composer's deps
+      become: false
+      composer:
+        working_dir: "{{ symfony_root_dir }}"
+        no_dev: "{{ 'yes' if ('prod' == symfony_env) else 'no'}}"
+    #  when: code_changed
+      tags:
+        - deploy
+
+
+    - name: Fix var directory perms
+      file:
+        path: "{{ symfony_var_dir }}"
+        state: directory
+        mode: 0665
+        owner: "www-data"
+        group: "vagrant"
+        recurse: yes
+      changed_when: false
+      tags:
+        - permissions
+        - deploy
+
+    ## Symfony console commands
+    - name: create db id it does not exit
+      command: "{{ symfony_console_path }} doctrine:database:create --if-not-exists"
+      register: db_create_result
+      changed_when: "not db_create_result.stdout|search('already exists. Skipped')"
+      tags:
+        - deploy
+
+    - name: Execute migrations
+      command: "{{ symfony_console_path }} doctrine:migrations:migrate --no-interaction"
+      register: db_migrations_result
+      changed_when: "not db_migrations_result.stdout|search('No migrations to execute')"
+      tags:
+        - deploy
+#
+#    - name: Clear Cache
+#      command: '{{ symfony_console_path }} cache:clear --env={{ symfony_env }} --no-warmup'
+#      changed_when: false
+#      tags:
+#        - deploy
+
+    - name: Check if admin user created
+      command: "{{ symfony_console_path }} doctrine:query:sql \"SELECT username FROM user WHERE username = 'admin'\""
+      register: user_query
+      tags:
+        - deploy
+
+    - name: Create super admin user
+      command: '{{ symfony_console_path }} fos:user:create admin admin@example.com admin --super-admin'
+      changed_when: false
+      when: "not user_query.stdout|search('admin')"
+      ignore_errors: yes
+      tags:
+        - deploy
+
+#    - name: Load fixtures
+#      command: "{{ symfony_console_path }} hautelook_alice:doctrine:fixtures:load --no-interaction"
+#      changed_when: false
+#      when: symfony_env != "prod"
+#      tags:
+#        - deploy
+
+
+  handlers:
+    - name: Restart PHP-FPM
+      become: true
+      service:
+        name: php7.2-fpm
+        state: restarted
